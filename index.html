@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="theme-color" content="#0f172a">
+<title>录音转写</title>
+<style>
+  :root {
+    --bg: #0b1020;
+    --card: #151c33;
+    --card2: #1c2440;
+    --line: #2a3455;
+    --text: #e8ecf8;
+    --dim: #8d99bb;
+    --accent: #4f8cff;
+    --accent2: #31c48d;
+    --danger: #f05252;
+    --warn: #f5a524;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); }
+  body {
+    font: 15px/1.6 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    padding: env(safe-area-inset-top) 16px calc(env(safe-area-inset-bottom) + 28px);
+    max-width: 640px; margin: 0 auto;
+  }
+  header { padding: 22px 0 14px; display: flex; align-items: baseline; gap: 10px; }
+  header h1 { font-size: 20px; margin: 0; font-weight: 650; letter-spacing: .3px; }
+  header .sub { color: var(--dim); font-size: 12.5px; }
+
+  .card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 16px; padding: 18px; margin-bottom: 14px;
+  }
+
+  /* 录音区 */
+  #recDot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--dim);
+    display: inline-block; margin-right: 7px; vertical-align: 1px;
+  }
+  .rec-status { color: var(--dim); font-size: 13px; margin-bottom: 14px; }
+  .rec-status.on { color: var(--danger); }
+  .rec-status.on #recDot { background: var(--danger); animation: pulse 1.2s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
+
+  #timer {
+    font-variant-numeric: tabular-nums; font-size: 42px; font-weight: 300;
+    text-align: center; letter-spacing: 1px; margin: 4px 0 18px; color: var(--text);
+  }
+  #meter { height: 4px; border-radius: 2px; background: var(--card2); overflow: hidden; margin-bottom: 20px; }
+  #meterFill { height: 100%; width: 0%; background: var(--accent2); transition: width .08s linear; }
+
+  .btn-row { display: flex; gap: 10px; }
+  button {
+    font: inherit; border: 0; border-radius: 12px; padding: 15px 20px;
+    cursor: pointer; font-weight: 600; transition: opacity .15s, transform .05s;
+  }
+  button:active:not(:disabled) { transform: scale(.985); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  #btnRec { flex: 1; background: var(--accent); color: #fff; font-size: 16px; }
+  #btnRec.stopping { background: var(--danger); }
+  #btnUpload { display: none; flex: 1; background: var(--card2); color: var(--text); border: 1px solid var(--line); }
+
+  /* 结果 */
+  .result { display: none; }
+  .result.show { display: block; }
+  .res-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+  .res-head h2 { font-size: 16px; margin: 0; font-weight: 650; }
+  .badge { font-size: 12px; padding: 3px 9px; border-radius: 20px; background: var(--card2); color: var(--dim); white-space: nowrap; }
+  .badge.ok { background: rgba(49,196,141,.15); color: var(--accent2); }
+  .badge.err { background: rgba(240,82,82,.15); color: var(--danger); }
+  .badge.run { background: rgba(79,140,255,.15); color: var(--accent); }
+
+  .section-title { font-size: 12px; color: var(--dim); text-transform: uppercase; letter-spacing: .8px; margin: 18px 0 8px; }
+  .section-title:first-of-type { margin-top: 0; }
+  .summary { background: var(--card2); border-radius: 12px; padding: 14px 16px; white-space: pre-wrap; word-break: break-word; }
+  .transcript { background: var(--card2); border-radius: 12px; padding: 14px 16px; white-space: pre-wrap; word-break: break-word; color: #c3cbe3; max-height: 40vh; overflow-y: auto; }
+
+  .copy-btn { background: transparent; border: 1px solid var(--line); color: var(--dim); font-size: 12px; padding: 6px 12px; border-radius: 8px; margin-top: 10px; }
+
+  /* 状态条 */
+  #status { font-size: 13px; color: var(--dim); margin-top: 12px; min-height: 20px; }
+  #status.err { color: var(--danger); }
+  #status.ok { color: var(--accent2); }
+
+  /* 历史 */
+  .hist-item {
+    display: flex; justify-content: space-between; align-items: center; gap: 10px;
+    padding: 11px 0; border-bottom: 1px solid var(--line); cursor: pointer;
+  }
+  .hist-item:last-child { border-bottom: 0; }
+  .hist-item:active { opacity: .6; }
+  .hist-main { min-width: 0; }
+  .hist-time { font-size: 13.5px; color: var(--text); }
+  .hist-preview { font-size: 12px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hist-dur { font-size: 12px; color: var(--dim); white-space: nowrap; }
+
+  .empty { color: var(--dim); font-size: 13px; text-align: center; padding: 18px 0; }
+
+  /* 设置 */
+  details summary { cursor: pointer; color: var(--dim); font-size: 13px; user-select: none; }
+  details[open] summary { margin-bottom: 12px; }
+  label { display: block; font-size: 13px; color: var(--dim); margin: 10px 0 5px; }
+  input[type=text] {
+    width: 100%; font: inherit; color: var(--text); background: var(--card2);
+    border: 1px solid var(--line); border-radius: 10px; padding: 11px 12px;
+  }
+
+  /* 上传进度 */
+  .progress { display: none; margin-top: 12px; }
+  .progress.show { display: block; }
+  .progress-bar { height: 3px; background: var(--card2); border-radius: 2px; overflow: hidden; }
+  .progress-bar > div { height: 100%; width: 0%; background: var(--accent); transition: width .2s; }
+  .progress-text { font-size: 12px; color: var(--dim); margin-top: 6px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>录音转写</h1>
+  <span class="sub">录完自动上传 · 转写 + 总结</span>
+</header>
+
+<!-- 录音 -->
+<div class="card" id="recCard">
+  <div class="rec-status" id="recStatus"><span id="recDot"></span><span id="recStatusText">待机</span></div>
+  <div id="timer">00:00</div>
+  <div id="meter"><div id="meterFill"></div></div>
+  <div class="btn-row">
+    <button id="btnRec">开始录音</button>
+    <button id="btnUpload">上传文件</button>
+  </div>
+  <input type="file" id="filePicker" accept="audio/*" style="display:none">
+  <div class="progress" id="progress">
+    <div class="progress-bar"><div id="progressFill"></div></div>
+    <div class="progress-text" id="progressText">准备上传…</div>
+  </div>
+  <div id="status"></div>
+</div>
+
+<!-- 结果 -->
+<div class="card result" id="result">
+  <div class="res-head">
+    <h2 id="resTitle">处理结果</h2>
+    <span class="badge" id="resBadge">处理中</span>
+  </div>
+
+  <div id="resSummaryWrap" style="display:none">
+    <div class="section-title">总结</div>
+    <div class="summary" id="resSummary"></div>
+    <button class="copy-btn" id="copySummary">复制总结</button>
+  </div>
+
+  <div id="resTextWrap" style="display:none">
+    <div class="section-title">转写原文</div>
+    <div class="transcript" id="resText"></div>
+    <button class="copy-btn" id="copyText">复制原文</button>
+  </div>
+</div>
+
+<!-- 历史 -->
+<div class="card">
+  <div class="res-head">
+    <h2>我的录音</h2>
+    <button class="copy-btn" id="btnRefresh" style="margin:0">刷新</button>
+  </div>
+  <div id="history"><div class="empty">还没有录音</div></div>
+</div>
+
+<!-- 设置 -->
+<div class="card">
+  <details>
+    <summary>设置</summary>
+    <label for="serverInput">服务器地址</label>
+    <input type="text" id="serverInput" placeholder="https://your-function.example.com" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <label for="keyInput">访问口令（部署到公网后必填）</label>
+    <input type="text" id="keyInput" placeholder="留空表示不需要口令" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <button class="copy-btn" id="btnSaveServer" style="width:100%">保存地址</button>
+  </details>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  // ------------------------------------------------------------------ 配置
+  const LS_SERVER = 'phoneAsr.server';
+  const LS_KEY = 'phoneAsr.accessKey';
+  const MAX_REC_SEC = 30 * 60;   // 单次录音上限
+
+  // 部署后把这里改成你的函数地址，页面就不用手动填了
+  const DEFAULT_SERVER = 'https://phone-asr-ruuobmknkx.cn-hangzhou.fcapp.run';
+  // 访问口令：和 FC 环境变量里 ACCESS_KEY 的值保持一致
+  const DEFAULT_KEY = '123456';
+
+  const $ = (id) => document.getElementById(id);
+  const recStatus = $('recStatus'), recStatusText = $('recStatusText');
+  const timerEl = $('timer'), meterFill = $('meterFill');
+  const btnRec = $('btnRec'), btnUpload = $('btnUpload'), filePicker = $('filePicker');
+  const statusEl = $('status');
+  const progressEl = $('progress'), progressFill = $('progressFill'), progressText = $('progressText');
+  const resultEl = $('result'), resTitle = $('resTitle'), resBadge = $('resBadge');
+  const resSummaryWrap = $('resSummaryWrap'), resSummary = $('resSummary');
+  const resTextWrap = $('resTextWrap'), resText = $('resText');
+
+  let server = localStorage.getItem(LS_SERVER) || DEFAULT_SERVER;
+  let accessKey = localStorage.getItem(LS_KEY) || DEFAULT_KEY;
+  let recording = false, mediaRecorder = null, chunks = [];
+  let audioCtx = null, analyser = null, meterRaf = 0;
+  let startedAt = 0, timerId = 0;
+  let currentJobId = null, pollId = 0;
+  let wakeLock = null;
+
+  // ------------------------------------------------------------------ 工具
+  function fmtTime(sec) {
+    sec = Math.max(0, Math.floor(sec));
+    const m = String(Math.floor(sec / 60)).padStart(2, '0');
+    const s = String(sec % 60).padStart(2, '0');
+    return `${m}:${s}`;
+  }
+  function fmtDur(sec) {
+    if (!sec && sec !== 0) return '';
+    if (sec < 60) return `${Math.round(sec)} 秒`;
+    return `${Math.floor(sec / 60)} 分 ${Math.round(sec % 60)} 秒`;
+  }
+  function setStatus(msg, kind) {
+    statusEl.textContent = msg || '';
+    statusEl.className = kind || '';
+  }
+  function setBadge(text, kind) {
+    resBadge.textContent = text;
+    resBadge.className = 'badge' + (kind ? ' ' + kind : '');
+  }
+  function fmtWhen(iso) {
+    const d = new Date(iso);
+    if (isNaN(d)) return iso || '';
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getMonth() + 1}月${d.getDate()}日 ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+  function headers() {
+    const h = {};
+    if (accessKey) h['X-Access-Key'] = accessKey;
+    return h;
+  }
+
+  // ------------------------------------------------------------------ 录音
+  window.addEventListener('beforeunload', (e) => {
+    if (recording) { e.preventDefault(); e.returnValue = ''; }
+  });
+
+  function pickMime() {
+    const cands = [
+      'audio/webm;codecs=opus',
+      'audio/webm',
+      'audio/mp4;codecs=mp4a.40.2',
+      'audio/mp4',
+      'audio/aac',
+      'audio/ogg;codecs=opus',
+    ];
+    if (!window.MediaRecorder) return '';
+    for (const c of cands) {
+      if (MediaRecorder.isTypeSupported(c)) return c;
+    }
+    return '';
+  }
+
+  async function startRecording() {
+    setStatus('');
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setStatus('当前浏览器不支持录音。请用手机自带浏览器或 Chrome / Edge 打开。', 'err');
+      return;
+    }
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          channelCount: 1,
+        }
+      });
+    } catch (e) {
+      const msg = e && e.name === 'NotAllowedError'
+        ? '麦克风权限被拒绝。请在浏览器地址栏左侧的图标里允许麦克风。'
+        : '打不开麦克风：' + (e && e.message ? e.message : e);
+      setStatus(msg, 'err');
+      return;
+    }
+
+    const mime = pickMime();
+    try {
+      mediaRecorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+    } catch (e) {
+      stream.getTracks().forEach((t) => t.stop());
+      setStatus('无法创建录音器：' + (e && e.message ? e.message : e), 'err');
+      return;
+    }
+
+    chunks = [];
+    mediaRecorder.ondataavailable = (ev) => {
+      if (ev.data && ev.data.size > 0) chunks.push(ev.data);
+    };
+    mediaRecorder.onerror = (ev) => {
+      const err = ev.error || {};
+      setStatus('录音出错：' + (err.message || err.name || '未知错误'), 'err');
+      stopRecording(true);
+    };
+    mediaRecorder.onstop = () => {
+      stream.getTracks().forEach((t) => t.stop());
+      teardownMeter();
+      const type = mediaRecorder.mimeType || mime || 'audio/webm';
+      const blob = new Blob(chunks, { type });
+      chunks = [];
+      if (blob.size < 1200) {
+        setStatus('录音太短，没录到声音。', 'err');
+        resetIdle();
+        return;
+      }
+      uploadBlob(blob, extForMime(type));
+    };
+
+    mediaRecorder.start(1000);  // 每秒吐一次数据，避免停止时丢最后一段
+    recording = true;
+    startedAt = Date.now();
+    resetIdleButtons();
+    btnRec.textContent = '停止录音';
+    btnRec.classList.add('stopping');
+    btnUpload.style.display = '';
+    recStatus.classList.add('on');
+    recStatusText.textContent = '录音中';
+    startMeter(stream);
+    timerId = setInterval(() => {
+      const sec = (Date.now() - startedAt) / 1000;
+      timerEl.textContent = fmtTime(sec);
+      if (sec >= MAX_REC_SEC) {
+        stopRecording();
+        setStatus('已到 30 分钟上限，自动停止。', '');
+      }
+    }, 250);
+    if ('wakeLock' in navigator) {
+      try { wakeLock = await navigator.wakeLock.request('screen'); } catch (_) {}
+    }
+  }
+
+  function stopRecording() {
+    if (!recording) return;
+    recording = false;
+    clearInterval(timerId);
+    wakeLock && wakeLock.release && wakeLock.release().catch(() => {});
+    wakeLock = null;
+    recStatus.classList.remove('on');
+    recStatusText.textContent = '处理中';
+    btnRec.textContent = '开始录音';
+    btnRec.classList.remove('stopping');
+    btnRec.disabled = true;
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      mediaRecorder.stop();
+    } else {
+      resetIdle();
+    }
+  }
+
+  function resetIdleButtons() {
+    btnRec.disabled = false;
+    btnUpload.style.display = 'none';
+  }
+  function resetIdle() {
+    recording = false;
+    clearInterval(timerId);
+    btnRec.disabled = false;
+    btnRec.textContent = '开始录音';
+    btnRec.classList.remove('stopping');
+    btnUpload.style.display = '';
+    recStatus.classList.remove('on');
+    recStatusText.textContent = '待机';
+    teardownMeter();
+  }
+
+  function startMeter(stream) {
+    try {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const src = audioCtx.createMediaStreamSource(stream);
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 512;
+      src.connect(analyser);
+      const buf = new Uint8Array(analyser.frequencyBinCount);
+      const tick = () => {
+        if (!analyser) return;
+        analyser.getByteTimeDomainData(buf);
+        let peak = 0;
+        for (let i = 0; i < buf.length; i++) {
+          const v = Math.abs(buf[i] - 128) / 128;
+          if (v > peak) peak = v;
+        }
+        meterFill.style.width = Math.min(100, peak * 140) + '%';
+        meterRaf = requestAnimationFrame(tick);
+      };
+      tick();
+    } catch (_) { /* 电平条只是装饰，失败不影响录音 */ }
+  }
+  function teardownMeter() {
+    cancelAnimationFrame(meterRaf);
+    meterRaf = 0;
+    meterFill.style.width = '0%';
+    if (audioCtx) { audioCtx.close().catch(() => {}); audioCtx = null; }
+    analyser = null;
+  }
+
+  function extForMime(mime) {
+    if (!mime) return 'webm';
+    if (mime.includes('mp4') || mime.includes('aac')) return 'm4a';
+    if (mime.includes('ogg')) return 'ogg';
+    if (mime.includes('wav')) return 'wav';
+    return 'webm';
+  }
+
+  // ------------------------------------------------------------------ 上传
+  function setProgress(pct, text) {
+    progressEl.classList.add('show');
+    progressFill.style.width = Math.max(0, Math.min(100, pct)) + '%';
+    if (text) progressText.textContent = text;
+  }
+  function hideProgress() {
+    setTimeout(() => progressEl.classList.remove('show'), 600);
+  }
+
+  function uploadBlob(blob, ext) {
+    if (!server) {
+      setStatus('还没设置服务器地址。展开下方「设置」填写后重试。', 'err');
+      resetIdle();
+      return;
+    }
+    setStatus('');
+    setProgress(2, '正在上传…');
+
+    const url = server.replace(/\/+$/, '') + '/upload?ext=' + encodeURIComponent(ext);
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url, true);
+    xhr.setRequestHeader('Content-Type', blob.type || 'application/octet-stream');
+    const h = headers();
+    Object.keys(h).forEach((k) => xhr.setRequestHeader(k, h[k]));
+
+    let upAt = Date.now();
+    xhr.upload.onprogress = (ev) => {
+      if (!ev.lengthComputable) return;
+      // 上传占 0~80%，剩 20% 留给服务端处理
+      setProgress(2 + (ev.loaded / ev.total) * 78, `上传中 ${(ev.loaded / 1024 / 1024).toFixed(1)} / ${(ev.total / 1024 / 1024).toFixed(1)} MB`);
+      upAt = Date.now();
+    };
+
+    xhr.onload = () => {
+      let data = null;
+      try { data = JSON.parse(xhr.responseText); } catch (_) {}
+      if (xhr.status >= 200 && xhr.status < 300 && data && data.job_id) {
+        setProgress(85, '已上传，正在转写…');
+        showResult(data.job_id);
+        resetIdle();
+        refreshHistory();
+      } else {
+        const msg = (data && (data.error || data.message)) || xhr.responseText.slice(0, 200) || ('HTTP ' + xhr.status);
+        setStatus('上传失败：' + msg, 'err');
+        hideProgress();
+        resetIdle();
+      }
+    };
+    xhr.onerror = () => {
+      setStatus('网络中断，上传失败。检查网络后重试。', 'err');
+      hideProgress();
+      resetIdle();
+    };
+    xhr.ontimeout = () => {
+      setStatus('上传超时。', 'err');
+      hideProgress();
+      resetIdle();
+    };
+    xhr.timeout = 10 * 60 * 1000;
+
+    // 计时器：上传慢时让用户知道还在动
+    const tick = setInterval(() => {
+      if (Date.now() - upAt > 8000) {
+        const mb = (blob.size / 1024 / 1024).toFixed(1);
+        progressText.textContent = `上传中 ${mb} MB，等待服务器…`;
+      }
+    }, 3000);
+    xhr.addEventListener('loadend', () => clearInterval(tick));
+
+    xhr.send(blob);
+  }
+
+  // ------------------------------------------------------------------ 结果轮询
+  async function showResult(jobId) {
+    currentJobId = jobId;
+    clearInterval(pollId);
+    resultEl.classList.add('show');
+    resTitle.textContent = '正在处理';
+    setBadge('处理中', 'run');
+    resSummaryWrap.style.display = 'none';
+    resTextWrap.style.display = 'none';
+    resultEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    await pollOnce(jobId);
+  }
+
+  async function pollOnce(jobId) {
+    if (!server) return;
+    try {
+      const resp = await fetch(server.replace(/\/+$/, '') + '/status?id=' + encodeURIComponent(jobId), { headers: headers() });
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const d = await resp.json();
+
+      if (d.status === 'done') {
+        clearInterval(pollId);
+        renderDone(d);
+        refreshHistory();
+      } else if (d.status === 'error') {
+        clearInterval(pollId);
+        resTitle.textContent = '处理失败';
+        setBadge('失败', 'err');
+        showText('错误', d.error || '未知错误');
+        resetIdle();
+        hideProgress();
+      } else {
+        const stageText = { queued: '排队中', asr: '转写中', llm: '生成总结中' }[d.stage] || '处理中';
+        setBadge(stageText, 'run');
+        progressText.textContent = '服务器' + stageText + '…';
+        pollId = setTimeout(() => pollOnce(jobId), 1500);
+      }
+    } catch (e) {
+      // 网络闪断不终止轮询，隔久点再试
+      pollId = setTimeout(() => pollOnce(jobId), 3000);
+    }
+  }
+
+  function renderDone(d) {
+    resTitle.textContent = '处理完成';
+    setBadge(d.duration ? '用时 ' + fmtTime(d.duration) : '完成', 'ok');
+    progressFill.style.width = '100%';
+    progressText.textContent = '完成';
+    hideProgress();
+    resetIdle();
+    setStatus('');
+
+    if (d.summary) {
+      resSummary.textContent = d.summary;
+      resSummaryWrap.style.display = '';
+    }
+    if (d.text) {
+      resText.textContent = d.text;
+      resTextWrap.style.display = '';
+    }
+    resultEl.classList.add('show');
+  }
+
+  function showText(title, body) {
+    resTitle.textContent = title;
+    resSummary.textContent = body;
+    resSummaryWrap.style.display = '';
+    resTextWrap.style.display = 'none';
+  }
+
+  // ------------------------------------------------------------------ 历史
+  async function refreshHistory() {
+    if (!server) return;
+    const box = $('history');
+    try {
+      const resp = await fetch(server.replace(/\/+$/, '') + '/list', { headers: headers() });
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const list = await resp.json();
+      if (!Array.isArray(list) || !list.length) {
+        box.innerHTML = '<div class="empty">还没有录音</div>';
+        return;
+      }
+      box.innerHTML = '';
+      list.forEach((item) => {
+        const row = document.createElement('div');
+        row.className = 'hist-item';
+        const main = document.createElement('div');
+        main.className = 'hist-main';
+        const t = document.createElement('div');
+        t.className = 'hist-time';
+        t.textContent = fmtWhen(item.created_at);
+        const p = document.createElement('div');
+        p.className = 'hist-preview';
+        p.textContent = item.preview || '（无文字）';
+        main.append(t, p);
+        const dur = document.createElement('div');
+        dur.className = 'hist-dur';
+        dur.textContent = item.status === 'done' ? fmtDur(item.duration) : '处理中';
+        row.append(main, dur);
+        row.addEventListener('click', async () => {
+          await showResult(item.id);
+        });
+        box.append(row);
+      });
+    } catch (e) {
+      box.innerHTML = '<div class="empty">列表加载失败</div>';
+    }
+  }
+
+  // ------------------------------------------------------------------ 事件
+  btnRec.addEventListener('click', () => {
+    if (recording) stopRecording();
+    else startRecording();
+  });
+
+  btnUpload.addEventListener('click', () => filePicker.click());
+  filePicker.addEventListener('change', () => {
+    const f = filePicker.files && filePicker.files[0];
+    filePicker.value = '';
+    if (!f) return;
+    uploadBlob(f, extForMime(f.type || ''));
+  });
+
+  $('btnRefresh').addEventListener('click', () => refreshHistory());
+
+  $('btnSaveServer').addEventListener('click', () => {
+    const v = $('serverInput').value.trim().replace(/\/+$/, '');
+    if (!v) { setStatus('地址不能为空。', 'err'); return; }
+    if (!/^https?:\/\//i.test(v)) { setStatus('地址要以 http:// 或 https:// 开头。', 'err'); return; }
+    server = v;
+    localStorage.setItem(LS_SERVER, v);
+    $('serverInput').value = v;
+
+    // 访问口令：部署到公网后 FC 会校验这个值，本机用可以留空
+    const k = $('keyInput').value.trim();
+    accessKey = k;
+    if (k) localStorage.setItem(LS_KEY, k);
+    else localStorage.removeItem(LS_KEY);
+
+    setStatus('已保存。', 'ok');
+    refreshHistory();
+  });
+
+  function copyWithFallback(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(
+        () => setStatus('已复制。', 'ok'),
+        () => legacyCopy(text)
+      );
+    } else {
+      legacyCopy(text);
+    }
+  }
+  function legacyCopy(text) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (_) {}
+    document.body.removeChild(ta);
+    setStatus(ok ? '已复制。' : '复制失败，请长按手动选择。', ok ? 'ok' : 'err');
+  }
+
+  $('copySummary').addEventListener('click', () => copyWithFallback(resSummary.textContent));
+  $('copyText').addEventListener('click', () => copyWithFallback(resText.textContent));
+
+  // ------------------------------------------------------------------ 启动
+  $('serverInput').value = server;
+  $('keyInput').value = accessKey;
+  if (!server) {
+    setStatus('首次使用：展开下方「设置」，填入服务器地址。', '');
+  }
+  refreshHistory();
+})();
+</script>
+</body>
+</html>
